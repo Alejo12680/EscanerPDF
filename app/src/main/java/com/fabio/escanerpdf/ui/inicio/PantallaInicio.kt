@@ -64,6 +64,7 @@ import java.util.Date
 fun PantallaInicio(
     pdfResaltado: File?,
     alEscanear: () -> Unit,
+    alCerrarApp: () -> Unit,
     inicioViewModel: InicioViewModel = viewModel(),
 ) {
     val contexto = LocalContext.current
@@ -107,7 +108,18 @@ fun PantallaInicio(
     }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("EscanerPDF") }) },
+        topBar = {
+            TopAppBar(
+                title = { Text("EscanerPDF") },
+                actions = {
+                    TextButton(onClick = alCerrarApp) {
+                        Icon(painterResource(R.drawable.ic_cerrar), contentDescription = null)
+                        Spacer(Modifier.width(4.dp))
+                        Text("Cerrar")
+                    }
+                },
+            )
+        },
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 onClick = alEscanear,

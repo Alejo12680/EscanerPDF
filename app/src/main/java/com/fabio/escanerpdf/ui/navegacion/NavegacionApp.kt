@@ -1,6 +1,8 @@
 package com.fabio.escanerpdf.ui.navegacion
 
+import android.os.Process
 import android.widget.Toast
+import androidx.activity.compose.LocalActivity
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.platform.LocalContext
@@ -25,6 +27,7 @@ private object Rutas {
 fun NavegacionApp() {
     val navController = rememberNavController()
     val contexto = LocalContext.current
+    val actividad = LocalActivity.current
 
     val escaner: EscanerViewModel = viewModel()
 
@@ -47,6 +50,10 @@ fun NavegacionApp() {
         composable(Rutas.INICIO) {
             PantallaInicio(
                 pdfResaltado = escaner.pdfRecienCreado,
+                alCerrarApp = {
+                    actividad?.finishAndRemoveTask()
+                    Process.killProcess(Process.myPid())
+                },
                 alEscanear = {
                     escaner.nuevoDocumento()
                     navController.navigate(Rutas.CAMARA)

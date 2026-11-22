@@ -1,6 +1,5 @@
 package com.fabio.escanerpdf.procesamiento
 
-import com.fabio.escanerpdf.datos.Filtro
 import com.fabio.escanerpdf.datos.PaginaEscaneada
 import com.fabio.escanerpdf.datos.Punto
 import org.opencv.core.Core
@@ -23,39 +22,38 @@ object ProcesadorPagina {
     private const val LADO_MINIATURA = 400
 
     @Throws(IOException::class)
-    fun procesar(foto: File, esquinas: List<Punto>, filtro: Filtro, destino: File): PaginaEscaneada {
+    fun procesar(foto: File, esquinas: List<Punto>, destino: File): PaginaEscaneada {
         OpenCv.asegurarCargado()
         require(esquinas.size == 4) { "Se necesitan 4 esquinas" }
 
-        var original = Imgcodecs.imread(foto.path, Imgcodecs.IMREAD_COLOR or Imgcodecs.IMREAD_IGNORE_ORIENTATION)
+        var original = Imgcodecs.imread(foto.path, Imgcodecs.IMREAD_GRAYSCALE or Imgcodecs.IMREAD_IGNORE_ORIENTATION)
         if (original.empty()) throw IOException("No se pudo leer la foto")
         original = girar(original, CargadorImagen.rotacionExif(foto))
 
         val enderezada = Mat()
-        var filtrada: Mat? = null
+        var blancoYNegro: Mat? = null
         try {
             enderezar(original, esquinas, enderezada)
             original.release()
 
-            filtrada = Filtros.aplicar(enderezada, filtro)
+            blancoYNegro = BlancoYNegro.aplicar(enderezada)
             val guardado = Imgcodecs.imwrite(
                 destino.path,
-                filtrada,
+                blancoYNegro,
                 MatOfInt(Imgcodecs.IMWRITE_JPEG_QUALITY, CALIDAD_JPEG),
             )
             if (!guardado) throw IOException("No se pudo guardar la página")
 
             return PaginaEscaneada(
                 archivo = destino,
-                ancho = filtrada.cols(),
-                alto = filtrada.rows(),
-                enEscalaDeGrises = filtrada.channels() == 1,
+                ancho = blancoYNegro.cols(),
+                alto = blancoYNegro.rows(),
                 miniatura = CargadorImagen.cargarReducida(destino, LADO_MINIATURA),
             )
         } finally {
             original.release()
             enderezada.release()
-            filtrada?.release()
+            blancoYNegro?.release()
         }
     }
 
@@ -78,7 +76,7 @@ object ProcesadorPagina {
         Imgproc.warpPerspective(
             original, salida, transformacion,
             Size(anchoPagina.toDouble(), altoPagina.toDouble()),
-            Imgproc.INTER_CUBIC, Core.BORDER_REPLICATE,
+            Imgproc.INTER_LINEAR, Core.BORDER_REPLICATE,
         )
         origen.release()
         destino.release()

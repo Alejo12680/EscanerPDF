@@ -250,9 +250,11 @@ private fun tienePermisoCamara(contexto: Context): Boolean =
 private fun crearControladorCamara(contexto: Context): LifecycleCameraController =
     LifecycleCameraController(contexto).apply {
         cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+        isAutoRotationEnabled = false
         setEnabledUseCases(CameraController.IMAGE_CAPTURE)
         imageCaptureMode = ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY
         imageCaptureResolutionSelector = ResolutionSelector.Builder()
+            .setAllowedResolutionMode(ResolutionSelector.PREFER_HIGHER_RESOLUTION_OVER_CAPTURE_RATE)
             .setAspectRatioStrategy(AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY)
             .setResolutionStrategy(
                 ResolutionStrategy(Size(4000, 3000), ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER)

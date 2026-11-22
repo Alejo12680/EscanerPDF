@@ -10,7 +10,6 @@ import com.tom_roush.pdfbox.pdmodel.PDPage
 import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
 import com.tom_roush.pdfbox.pdmodel.common.PDRectangle
 import com.tom_roush.pdfbox.pdmodel.graphics.color.PDDeviceGray
-import com.tom_roush.pdfbox.pdmodel.graphics.color.PDDeviceRGB
 import com.tom_roush.pdfbox.pdmodel.graphics.image.PDImageXObject
 import java.io.File
 import java.io.IOException
@@ -44,9 +43,8 @@ object GeneradorPdf {
         val pdPagina = PDPage(PDRectangle(ANCHO_PAGINA, altoPagina))
         documento.addPage(pdPagina)
 
-        val espacioDeColor = if (pagina.enEscalaDeGrises) PDDeviceGray.INSTANCE else PDDeviceRGB.INSTANCE
         val imagen = pagina.archivo.inputStream().use { entrada ->
-            PDImageXObject(documento, entrada, COSName.DCT_DECODE, pagina.ancho, pagina.alto, 8, espacioDeColor)
+            PDImageXObject(documento, entrada, COSName.DCT_DECODE, pagina.ancho, pagina.alto, 8, PDDeviceGray.INSTANCE)
         }
 
         PDPageContentStream(documento, pdPagina).use { contenido ->

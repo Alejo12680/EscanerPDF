@@ -63,6 +63,7 @@ fun PantallaRevision(
     val paginas = escaner.paginas
     var confirmarDescarte by remember { mutableStateOf(false) }
     var paginaPorBorrar by remember { mutableStateOf<PaginaEscaneada?>(null) }
+    var paginaEnGrande by remember { mutableStateOf<PaginaEscaneada?>(null) }
 
     fun intentarSalir() {
         if (ocupado) return
@@ -129,7 +130,7 @@ fun PantallaRevision(
                     )
                 } else {
                     Text(
-                        if (paginas.size == 1) "1 página" else "${paginas.size} páginas",
+                        (if (paginas.size == 1) "1 página" else "${paginas.size} páginas") + " · toca una para verla en grande",
                         modifier = Modifier.padding(horizontal = 16.dp),
                         style = MaterialTheme.typography.labelLarge,
                     )
@@ -144,6 +145,7 @@ fun PantallaRevision(
                                 numero = indice + 1,
                                 pagina = pagina,
                                 habilitado = !ocupado,
+                                alVer = { paginaEnGrande = pagina },
                                 alBorrar = { paginaPorBorrar = pagina },
                             )
                         }
@@ -165,6 +167,14 @@ fun PantallaRevision(
                 }
             }
         }
+    }
+
+    paginaEnGrande?.let { pagina ->
+        VisorPagina(
+            titulo = "Página ${paginas.indexOf(pagina) + 1}",
+            cargar = { escaner.cargarParaVer(pagina) },
+            alCerrar = { paginaEnGrande = null },
+        )
     }
 
     paginaPorBorrar?.let { pagina ->
@@ -198,9 +208,15 @@ fun PantallaRevision(
 }
 
 @Composable
-private fun TarjetaPagina(numero: Int, pagina: PaginaEscaneada, habilitado: Boolean, alBorrar: () -> Unit) {
+private fun TarjetaPagina(
+    numero: Int,
+    pagina: PaginaEscaneada,
+    habilitado: Boolean,
+    alVer: () -> Unit,
+    alBorrar: () -> Unit,
+) {
     val miniatura = remember(pagina) { pagina.miniatura.asImageBitmap() }
-    Card {
+    Card(onClick = alVer, enabled = habilitado) {
         Box {
             Image(
                 bitmap = miniatura,

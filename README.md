@@ -292,6 +292,7 @@ La vista previa mide ~1600 px y la original ~4000 px. Si la esquina se guardara 
   - Cámara trasera, solo `IMAGE_CAPTURE`.
   - `CAPTURE_MODE_MAXIMIZE_QUALITY`.
   - `ResolutionStrategy(Size(4000, 3000), FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER)` + relación 4:3.
+  - `setAllowedResolutionMode(PREFER_HIGHER_RESOLUTION_OVER_CAPTURE_RATE)`: en celulares con la capacidad `BURST_CAPTURE`, Android esconde las resoluciones que no alcanzan 20 fotos por segundo en una lista aparte (`getHighResolutionOutputSizes`). CameraX solo la usa si se le pide con este modo. **Caso real:** en el Moto g22, 4080x3072 tarda 66 ms por cuadro (15 fps); sin este modo, la app tomaba fotos de 3264x2448 (8 MP).
   - Enfoque automático continuo y tocar para enfocar vienen activados por defecto.
 - `DisposableEffect` hace `bindToLifecycle` al entrar y `unbind` al salir. CameraX apaga la cámara sola si la app pasa a segundo plano.
 - `PreviewView` (vista clásica) dentro de `AndroidView`, con `FIT_CENTER` para ver la foto completa sin recortes.

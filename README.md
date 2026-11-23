@@ -206,41 +206,65 @@ La vista previa mide ~1600 px y la original ~4000 px. Si la esquina se guardara 
   2. Calcula `inSampleSize` (potencia de 2): con 2 se carga 1 de cada 2 píxeles por lado, o sea 4 veces menos memoria. Una foto de 12 MP completa ocupa ~48 MB como Bitmap.
   3. Gira con una `Matrix` según el EXIF.
 
-**`DetectorBordes.kt`** — busca la hoja en una copia de **600 px**:
-1. `Utils.bitmapToMat` → `Mat` RGBA.
-2. `resize` a 600 px (`INTER_AREA`, el mejor método para reducir).
-3. Gris → `GaussianBlur 5x5` (quita ruido y textura del papel) → `Canny(50, 150)` (bordes) → `dilate 3x3` (une líneas cortadas).
-4. `findContours` (todos los contornos).
-5. De los **10 más grandes**, `approxPolyDP` con tolerancia del 2% del perímetro. Se acepta el primero que quede con **4 vértices**, sea **convexo** y ocupe **al menos el 15%** de la foto.
-6. Si no hay ninguno, `esquinasPorDefecto()` (rectángulo con 5% de margen).
-7. `ordenarEsquinas`: ordena por ángulo alrededor del centro (sentido horario) y rota la lista para que empiece en el punto con menor `x + y` (arriba a la izquierda). Así funciona aunque la hoja esté girada (lo prueba `LogicaPuraTest`).
+**`DetectorBordes.kt`** — busca la hoja en una copia de **600 px** (`Utils.bitmapToMat` → `Mat` RGBA → `resize` con `INTER_AREA`, el mejor método para reducir). Prueba dos métodos, en orden:
+
+**Método 1, `buscarPorContornos`** (el original; funciona cuando los cuatro bordes se ven completos):
+1. Gris → `GaussianBlur 5x5` (quita ruido y textura del papel) → `Canny(50, 150)` (bordes) → `dilate 3x3` (une líneas cortadas).
+2. `findContours` (todos los contornos).
+3. De los **10 más grandes**, `approxPolyDP` con tolerancia del 2% del perímetro. Se acepta el primero que quede con **4 vértices**, sea **convexo** y ocupe **al menos el 15%** de la foto.
+
+**Método 2, `buscarPorRegion`** (se agregó después de probar con un OPPO A60: papel reciclado sobre una tela rosada y una hoja que se salía de la foto). El método 1 falla cuando un borde casi no se ve o cuando la hoja toca el marco de la foto, porque el contorno queda abierto.
+1. `calcularBordes`: `Canny(20, 60)` (más sensible) sobre el gris **y** sobre el "croma", que mide qué tan lejos del gris neutro está cada color (canales a y b del espacio Lab). Así aparece el borde entre un papel beige y una tela rosada aunque tengan el mismo brillo.
+2. `soloBordesLargos`: con `connectedComponentsWithStats` se descartan los bordes cortos, como las letras, y quedan las líneas largas (≥15% del lado menor): bordes de la hoja, de la mesa, etc.
+3. Esas líneas, engrosadas, funcionan como **paredes**. `connectedComponents` encuentra las zonas que quedan encerradas, y se elige la que más ocupa el **centro** de la foto (la hoja casi siempre está ahí).
+4. `findContours` de esa zona → `convexHull` → `approxPolyDP`, subiendo la tolerancia de a poco hasta que queden 4 puntos (`aproximarConCasco`).
+5. `ajustarLados`: la aproximación traza cuerdas que quedan unos píxeles por dentro del borde real. Por eso cada punto del contorno se asigna al lado más cercano, se ajusta una **recta** a cada lado (`fitLine` con `DIST_HUBER`, que ignora puntos raros) y las esquinas son los **cruces** de rectas vecinas.
+6. `esValido`: el área debe estar entre el 15% y el 98%, la figura debe ser convexa, los ángulos razonables (`cosenoMaximo` ≤ 0,6) y debe tener **soporte**: al menos el 60% del perímetro tiene que caer sobre bordes reales (los tramos pegados al marco de la foto no cuentan). Así no se acepta un cuadrilátero inventado.
+
+Si ninguno sirve, se usa `esquinasPorDefecto()` (rectángulo con 5% de margen). Al final, `ordenarEsquinas` ordena por ángulo alrededor del centro (sentido horario) y rota la lista para que empiece en el punto con menor `x + y` (arriba a la izquierda). Así funciona aunque la hoja esté girada (lo prueba `LogicaPuraTest`).
+
+Con 6 fotos reales, el método 1 encontraba la hoja en 1. Con el método 2 también se encuentran la firma y la lista del OPPO. Las 3 hojas sobre la tabla de apoyo, que se salen de la foto por arriba y por los lados, siguen con el rectángulo por defecto, igual que antes.
 
 `Mat` vive en **memoria nativa** (C++), fuera del recolector de basura de Java; por eso cada `Mat` se libera con `release()` en un `finally`.
 
-**`BlancoYNegro.kt`** — convierte la página (en gris) a blanco y negro puro. Se ajustó con fotos reales tomadas con el Moto g22:
+**`BlancoYNegro.kt`** — convierte la página (en gris) a blanco y negro puro. Se ajustó con fotos reales del Moto g22 (papel blanco) y del OPPO A60 (papel reciclado, sombras y luz de noche):
 
-1. **`normalizar`:** reduce la página a 256 px, aplica `dilate 9x9` (el papel es lo más claro, así el texto desaparece) y un `GaussianBlur` grande. El resultado es un "mapa de iluminación" con las sombras y la luz desigual, sin el contenido. Luego `Core.divide(gris, fondo, 255)` divide cada píxel por su fondo: el papel queda en ~255 en toda la hoja aunque tenga sombras.
-2. **`GaussianBlur 3x3`:** suaviza un poco la textura del papel.
-3. **`calcularCorteLocal`** (a media resolución, para que sea rápido):
+1. **`estimarFondo`:** reduce la página a 256 px y aplica un **cierre morfológico 9x9** (`MORPH_CLOSE`, que es `dilate` y luego `erode`). El texto desaparece porque es más delgado que 9 px, pero el borde de una sombra queda en su sitio. Después aplica un `GaussianBlur` suave (σ=3). Además, el fondo nunca baja del 25% del brillo máximo (`PISO_FONDO`), para que una zona muy oscura, como la mesa o un gancho metálico, no se "aclare" hasta parecer papel.
+2. **`normalizar`:** `Core.divide(gris, fondo, 255)` divide cada píxel por su fondo, así el papel queda en ~255 en toda la hoja aunque tenga sombras.
+3. **`GaussianBlur 3x3`:** suaviza un poco la textura del papel.
+4. **`calcularCorteLocal`** (a media resolución, para que sea rápido):
    - `erode` → la tinta más oscura alrededor de cada punto (`minimo`).
    - `dilate` → el papel más claro alrededor (`maximo`).
    - **corte** = 70% del camino entre la tinta y el papel (`FRACCION_BORDE`).
    - **contraste** = `maximo - minimo`.
-4. Un píxel es **texto** si es más oscuro que su corte **y** el contraste de la zona es mayor a 20 (`CONTRASTE_MINIMO`; así el papel liso no genera ruido).
-5. Un píxel es **zona oscura** si está por debajo del 70% del brillo del papel (`UMBRAL_OSCUROS`). Rellena barras, logos y grises medios.
-6. Negro = texto **o** zona oscura. Al final, `medianBlur 3x3` quita puntos sueltos.
+5. **`calcularUmbral`:** decide cuánto contraste se exige en cada zona.
+   - Divide la página en bloques de ~1/40 del lado.
+   - En cada bloque mide la **desviación estándar del brillo del papel**, sin contar lo que está cerca de tinta (`CONTRASTE_TINTA` = 60). Se calcula con sumas: `resize` con `INTER_AREA` promedia, y con el promedio de x y el de x² sale la varianza.
+   - `ruidoPorBloque` divide ese valor por la **ganancia** (cuánto se aclaró el bloque al normalizar) y luego la vuelve a aplicar. Así una zona en sombra, que al aclararse multiplicó su grano, exige más contraste. Los bloques sin papel visible, como los párrafos densos, usan la mediana de los demás.
+   - **umbral** = el mayor entre 20 (`CONTRASTE_MINIMO`) y 6 × ruido (`VECES_RUIDO`).
+6. Un píxel es **texto** si es más oscuro que su corte **y** el contraste de la zona supera su umbral.
+7. Un píxel es **zona oscura** si está por debajo del 70% del brillo del papel (`UMBRAL_OSCUROS`). Rellena barras, logos y grises medios.
+8. Negro = texto **o** zona oscura. Al final, `medianBlur 3x3` quita puntos sueltos.
 
 **¿Por qué un corte local y no un umbral fijo?** Cada letra se corta a la misma fracción entre *su* tinta y *su* papel. Una letra negra (tinta ~20% del brillo del papel) y un título gris claro (tinta ~70%) quedan los dos con su grosor real. Con un umbral único había que elegir: o el título gris se borraba, o el texto negro salía grueso.
 
-Historia de los ajustes (todos probados con la misma hoja real):
+**¿Por qué un umbral que depende del ruido?** En papel blanco con buena luz el ruido es bajo y el umbral queda en 20, como antes, así que el título gris claro se conserva. En papel reciclado (fibras y manchas) o en una sombra, las manchas tienen contraste de 20 a 30 y se volvían puntos negros por toda la hoja. Ahí el ruido medido es alto y el umbral sube a 40-60, mientras la tinta (contraste de 130 o más) pasa sin problema.
+
+Historia de los ajustes (probados siempre con las mismas fotos reales):
 
 | Versión | Resultado |
 |---|---|
 | `adaptiveThreshold` gaussiano, C=15 | Texto bien, pero el título gris claro se borraba, las barras grises salían huecas (solo el borde) y tardaba **16,4 s por página** en el Moto g22 (vecindario de 113x113 px). |
 | `adaptiveThreshold` por promedio, C=10 | 0,9 s por página, título completo y barras rellenas, pero **todo el texto salía grueso**: los bordes suaves de las letras también se volvían negros. |
-| **Corte local al 70% (actual)** | Grosor normal, título completo, barras rellenas y velocidad similar a la anterior. |
+| Corte local al 70% | Grosor normal, título completo, barras rellenas y velocidad similar. Pero en el OPPO, con papel reciclado y de noche, la hoja se llenaba de puntos negros. |
 | Corte al 50% | Demasiado fino: se cortaban letras como la "y". |
-| Contraste mínimo 30-40 | Se volvía a borrar parte del título. |
+| Contraste mínimo fijo 30-40 | Se volvía a borrar parte del título. |
+| Fondo con `dilate` y desenfoque grande (σ=12) | Una sombra con borde marcado, como la del celular, quedaba como franja gris llena de puntos. Se reemplazó por el cierre morfológico. |
+| **Umbral según el ruido, 6 veces (actual)** | Papel reciclado y sombras limpios. En papel blanco, el mismo grosor que antes (negro del texto 10,53% contra 10,60%) y el título se conserva. |
+| Umbral 8 veces el ruido | Se borraba parte del título gris. |
+| Exigir bordes nítidos | Borraba "PROTOC", lo más tenue del título, y el ruido de las sombras también tiene bordes nítidos. Descartado. |
+| Borrar manchas pequeñas por tamaño | Borraba los puntos de las íes y los puntos finales. Descartado. |
+| Suavizar más antes del corte | Engrosaba el texto ~12%. Descartado. |
 
 **`ProcesadorPagina.kt`**
 - Todo se hace con `Mat` (memoria nativa) en vez de Bitmap, para no agotar la memoria de Java con 12 MP.
@@ -505,15 +529,16 @@ El corte local compara cada píxel con la tinta y el papel de su alrededor. Con 
 
 - **Grises decorativos** (curvas, sombreados) pueden salir rellenos con algunos puntitos blancos, o con manchas si quedan detrás del texto.
 - **Texto muy claro** (lápiz suave, impresión gris muy tenue) puede salir con trazos cortados. Bajar `CONTRASTE_MINIMO` lo recupera a cambio de más ruido; subir `FRACCION_BORDE` engruesa el texto.
+- **Papel reciclado con sombra muy fuerte:** en la parte más oscura pueden quedar algunos puntos. Subir `VECES_RUIDO` limpia más, pero desde 8 empieza a borrar texto gris claro.
 - **Fotos o dibujos** dentro de la hoja se ven como alto contraste, no como fotografía.
 
 ### Velocidad en el Moto g22
 
-Procesar una página de 12 MP en el Moto g22 (gama baja) tardaba 16,4 s con el umbral gaussiano y la interpolación cúbica. Con el umbral por promedio y la interpolación lineal bajó a 0,9 s; el corte local actual tiene un costo parecido (ver sección 5.4).
+Procesar una página de 12 MP en el Moto g22 (gama baja) tardaba 16,4 s con el umbral gaussiano y la interpolación cúbica. Con el umbral por promedio y la interpolación lineal bajó a 0,9 s; el corte local tiene un costo parecido, y el umbral según el ruido agrega poco porque se calcula a media resolución y por bloques (ver sección 5.4).
 
 ### Otras
 
-- **Detección automática:** necesita que la hoja contraste con el fondo y ocupe al menos el 15% de la foto. Si no, aparece el rectángulo por defecto y se ajusta a mano.
+- **Detección automática:** necesita que la hoja se distinga del fondo, en brillo o en color, y ocupe al menos el 15% de la foto. Si la hoja se sale de la foto por varios lados, aparece el rectángulo por defecto y se ajusta a mano.
 - **La sesión vive en memoria:** si Android cierra la app en segundo plano a mitad de un escaneo, las páginas no terminadas se pierden (Recorte muestra "La foto ya no está disponible").
 - **Emulador:** su cámara virtual da solo 1280x960 y OpenCV corre traducido de ARM a x86 (lento). Sirve para probar el flujo, no la calidad.
 - **Tamaño del APK (~44 MB):** OpenCV ocupa ~17 MB comprimido (dos arquitecturas). PdfBox trae BouncyCastle (para PDFs cifrados, que no usamos), que suma varios MB.
@@ -534,6 +559,7 @@ Procesar una página de 12 MP en el Moto g22 (gama baja) tardaba 16,4 s con el u
 - [x] **Probar en Motorola** (Moto g22, Android 12): foto vertical, 12 MP, B/N y zoom.
 - [ ] **APK firmado para repartir:** el APK *debug* sirve para pruebas. Para distribuir: *Build → Generate Signed App Bundle / APK → APK*, crear un keystore y **guardarlo bien** (sin él no se pueden publicar actualizaciones que se instalen encima).
 - [x] **B/N mejorado:** normalización del fondo + corte local entre tinta y papel + umbral para zonas oscuras.
+- [x] **Papel reciclado, sombras y poca luz** (OPPO A60): umbral según el ruido y detección de bordes por regiones.
 - [ ] Girar una página 90° desde Revisión.
 - [ ] Reordenar páginas.
 - [ ] Botón de flash o linterna para aulas con poca luz.

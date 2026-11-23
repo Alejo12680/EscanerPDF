@@ -3,6 +3,9 @@ package com.fabio.escanerpdf.procesamiento
 import org.opencv.core.Core
 import org.opencv.core.CvType
 import org.opencv.core.Mat
+import org.opencv.core.MatOfPoint
+import org.opencv.core.Point
+import org.opencv.core.Rect
 import org.opencv.core.Scalar
 import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
@@ -22,6 +25,8 @@ object BlancoYNegro {
     private const val VECES_RUIDO = 6.0
     private const val CONTRASTE_TINTA = 60.0
     private const val PAPEL_MINIMO = 0.15f
+    private const val VECES_RUIDO_NUCLEO = 24.0
+    private const val DIVISOR_MARGEN_NUCLEO = 100
 
     fun aplicar(gris: Mat): Mat {
         val fondo = estimarFondo(gris)
@@ -36,14 +41,15 @@ object BlancoYNegro {
         try {
             normalizar(gris, fondo, normalizada)
             Imgproc.GaussianBlur(normalizada, normalizada, Size(3.0, 3.0), 0.0)
-            calcularCorteLocal(normalizada, fondo, corte, contraste, umbral)
+            val ruidoPagina = calcularCorteLocal(normalizada, fondo, corte, contraste, umbral)
 
             Core.compare(normalizada, corte, texto, Core.CMP_LT)
             Core.compare(contraste, umbral, conContraste, Core.CMP_GT)
             Core.bitwise_and(texto, conContraste, texto)
             Core.compare(normalizada, Scalar(255 * UMBRAL_OSCUROS), oscuros, Core.CMP_LT)
 
-            Core.bitwise_or(texto, oscuros, resultado)
+            Core.bitwise_or(texto, oscuros, texto)
+            conservarConNucleo(texto, normalizada, ruidoPagina, resultado)
             Core.bitwise_not(resultado, resultado)
             Imgproc.medianBlur(resultado, resultado, 3)
             return resultado
@@ -79,7 +85,43 @@ object BlancoYNegro {
         fondoCompleto.release()
     }
 
-    private fun calcularCorteLocal(normalizada: Mat, fondo: Mat, corte: Mat, contraste: Mat, umbral: Mat) {
+    private fun conservarConNucleo(negro: Mat, normalizada: Mat, ruidoPagina: Double, conservado: Mat) {
+        val profundidad = max(CONTRASTE_MINIMO, VECES_RUIDO_NUCLEO * ruidoPagina)
+        val nucleo = Mat()
+        val jerarquia = Mat()
+        val contornos = mutableListOf<MatOfPoint>()
+        val mascara = Mat.zeros(negro.rows() + 2, negro.cols() + 2, CvType.CV_8U)
+        val banderas = 8 or Imgproc.FLOODFILL_MASK_ONLY or (255 shl 8)
+        val igual = Scalar(0.0)
+        val marca = ByteArray(1)
+        try {
+            Core.compare(normalizada, Scalar(255 - profundidad), nucleo, Core.CMP_LT)
+            Core.bitwise_and(nucleo, negro, nucleo)
+            val margen = max(1, min(negro.rows(), negro.cols()) / DIVISOR_MARGEN_NUCLEO)
+            val borde = Point((negro.cols() - 1).toDouble(), (negro.rows() - 1).toDouble())
+            Imgproc.rectangle(nucleo, Point(0.0, 0.0), borde, Scalar(0.0), 2 * margen + 1)
+            Imgproc.findContours(nucleo, contornos, jerarquia, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
+
+            for (contorno in contornos) {
+                val (x, y) = contorno.get(0, 0).map { it.toInt() }
+                mascara.get(y + 1, x + 1, marca)
+                if (marca[0].toInt() == 0) {
+                    val semilla = Point(x.toDouble(), y.toDouble())
+                    Imgproc.floodFill(negro, mascara, semilla, Scalar(0.0), Rect(), igual, igual, banderas)
+                }
+            }
+            val interior = mascara.submat(1, negro.rows() + 1, 1, negro.cols() + 1)
+            interior.copyTo(conservado)
+            interior.release()
+        } finally {
+            nucleo.release()
+            jerarquia.release()
+            contornos.forEach { it.release() }
+            mascara.release()
+        }
+    }
+
+    private fun calcularCorteLocal(normalizada: Mat, fondo: Mat, corte: Mat, contraste: Mat, umbral: Mat): Double {
         val ladoPagina = min(normalizada.cols(), normalizada.rows())
         val ladoCompleto = max(9, ladoPagina / 100) or 1
         val lado = (ladoCompleto / 2) or 1
@@ -93,11 +135,12 @@ object BlancoYNegro {
             Imgproc.erode(reducida, minimo, nucleo)
             Imgproc.dilate(reducida, maximo, nucleo)
             Core.subtract(maximo, minimo, diferencia)
-            calcularUmbral(reducida, diferencia, nucleo, fondo, ladoPagina, normalizada.size(), umbral)
+            val ruidoPagina = calcularUmbral(reducida, diferencia, nucleo, fondo, ladoPagina, normalizada.size(), umbral)
 
             Core.addWeighted(minimo, 1 - FRACCION_BORDE, maximo, FRACCION_BORDE, 0.0, reducida)
             Imgproc.resize(reducida, corte, normalizada.size(), 0.0, 0.0, Imgproc.INTER_LINEAR)
             Imgproc.resize(diferencia, contraste, normalizada.size(), 0.0, 0.0, Imgproc.INTER_LINEAR)
+            return ruidoPagina
         } finally {
             reducida.release()
             minimo.release()
@@ -115,7 +158,7 @@ object BlancoYNegro {
         ladoPagina: Int,
         tamanoFinal: Size,
         umbral: Mat,
-    ) {
+    ): Double {
         val ladoBloque = max(8, ladoPagina / 80)
         val bloques = Size(
             max(1, reducida.cols() / ladoBloque).toDouble(),
@@ -128,7 +171,7 @@ object BlancoYNegro {
         val suma1 = Mat()
         val suma2 = Mat()
         val brillo = Mat()
-        var ruido: Mat? = null
+        val ruido = Mat()
         try {
             Core.compare(diferencia, Scalar(CONTRASTE_TINTA), papel, Core.CMP_GT)
             Imgproc.dilate(papel, papel, nucleo)
@@ -143,12 +186,13 @@ object BlancoYNegro {
             Imgproc.resize(producto, suma2, bloques, 0.0, 0.0, Imgproc.INTER_AREA)
             Imgproc.resize(fondo, brillo, bloques, 0.0, 0.0, Imgproc.INTER_AREA)
 
-            ruido = ruidoPorBloque(suma0, suma1, suma2, brillo)
+            val ruidoPagina = ruidoPorBloque(suma0, suma1, suma2, brillo, ruido)
             Imgproc.GaussianBlur(ruido, ruido, Size(0.0, 0.0), 1.0)
             Core.multiply(ruido, Scalar(VECES_RUIDO), ruido)
             Core.max(ruido, Scalar(CONTRASTE_MINIMO), ruido)
             ruido.convertTo(ruido, CvType.CV_8U)
             Imgproc.resize(ruido, umbral, tamanoFinal, 0.0, 0.0, Imgproc.INTER_LINEAR)
+            return ruidoPagina
         } finally {
             papel.release()
             valores.release()
@@ -157,11 +201,11 @@ object BlancoYNegro {
             suma1.release()
             suma2.release()
             brillo.release()
-            ruido?.release()
+            ruido.release()
         }
     }
 
-    private fun ruidoPorBloque(suma0: Mat, suma1: Mat, suma2: Mat, brillo: Mat): Mat {
+    private fun ruidoPorBloque(suma0: Mat, suma1: Mat, suma2: Mat, brillo: Mat, mapa: Mat): Double {
         val total = suma0.rows() * suma0.cols()
         val s0 = FloatArray(total).also { suma0.get(0, 0, it) }
         val s1 = FloatArray(total).also { suma1.get(0, 0, it) }
@@ -170,19 +214,27 @@ object BlancoYNegro {
         val ganancia = FloatArray(total) { 255f / max(luz[it].toInt() and 0xFF, 1) }
 
         val ruido = FloatArray(total) { Float.NaN }
+        val ruidoNormalizado = mutableListOf<Float>()
         for (i in 0 until total) {
             if (s0[i] > PAPEL_MINIMO) {
                 val media = s1[i] / s0[i]
-                val varianza = max(s2[i] / s0[i] - media * media, 0f)
-                ruido[i] = sqrt(varianza) / ganancia[i]
+                val desviacion = sqrt(max(s2[i] / s0[i] - media * media, 0f))
+                ruido[i] = desviacion / ganancia[i]
+                ruidoNormalizado.add(desviacion)
             }
         }
-        val validos = ruido.filter { !it.isNaN() }.sorted()
-        val relleno = if (validos.isEmpty()) 0f else validos[validos.size / 2]
+        val relleno = mediana(ruido.filter { !it.isNaN() })
         for (i in 0 until total) {
             val base = if (ruido[i].isNaN()) relleno else ruido[i]
             ruido[i] = base * ganancia[i]
         }
-        return Mat(suma0.rows(), suma0.cols(), CvType.CV_32F).apply { put(0, 0, ruido) }
+        mapa.create(suma0.rows(), suma0.cols(), CvType.CV_32F)
+        mapa.put(0, 0, ruido)
+        return mediana(ruidoNormalizado).toDouble()
+    }
+
+    private fun mediana(valores: List<Float>): Float {
+        val ordenados = valores.sorted()
+        return if (ordenados.isEmpty()) 0f else ordenados[ordenados.size / 2]
     }
 }

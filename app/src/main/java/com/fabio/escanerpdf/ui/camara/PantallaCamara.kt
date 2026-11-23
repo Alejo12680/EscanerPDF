@@ -27,6 +27,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -163,16 +164,17 @@ private fun VistaCamara(
             Text("Página ${cantidadPaginas + 1}", color = Color.White, style = MaterialTheme.typography.titleMedium)
         }
 
-        Box(
+        Row(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
                 .navigationBarsPadding()
-                .padding(24.dp),
+                .padding(horizontal = 16.dp, vertical = 24.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
+            Spacer(Modifier.weight(1f))
             BotonDisparador(
                 habilitado = !capturando,
-                modifier = Modifier.align(Alignment.Center),
                 alTocar = {
                     capturando = true
                     tomarFoto(
@@ -189,11 +191,16 @@ private fun VistaCamara(
                     )
                 },
             )
-            if (cantidadPaginas > 0) {
-                FilledTonalButton(onClick = alIrARevision, modifier = Modifier.align(Alignment.CenterEnd)) {
-                    Icon(painterResource(R.drawable.ic_check), contentDescription = null)
-                    Spacer(Modifier.width(4.dp))
-                    Text("Listo ($cantidadPaginas)")
+            Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
+                if (cantidadPaginas > 0) {
+                    FilledTonalButton(
+                        onClick = alIrARevision,
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                    ) {
+                        Icon(painterResource(R.drawable.ic_check), contentDescription = null)
+                        Spacer(Modifier.width(4.dp))
+                        Text("Listo ($cantidadPaginas)", maxLines = 1)
+                    }
                 }
             }
         }

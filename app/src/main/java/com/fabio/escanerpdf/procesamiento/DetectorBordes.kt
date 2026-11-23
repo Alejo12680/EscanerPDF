@@ -31,6 +31,7 @@ object DetectorBordes {
     private const val LARGO_PARED = 0.15
     private const val DISTANCIA_LADO = 15.0
     private const val MARGEN_MARCO = 4
+    private const val LADO_APERTURA = 15.0
 
     fun detectar(imagen: Bitmap): List<Punto> {
         OpenCv.asegurarCargado()
@@ -117,6 +118,9 @@ object DetectorBordes {
 
             Core.compare(etiquetas, Scalar(etiqueta.toDouble()), region, Core.CMP_EQ)
             Imgproc.dilate(region, region, nucleo)
+            val nucleoApertura = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(LADO_APERTURA, LADO_APERTURA))
+            Imgproc.morphologyEx(region, region, Imgproc.MORPH_OPEN, nucleoApertura)
+            nucleoApertura.release()
             Imgproc.findContours(region, contornos, jerarquia, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_NONE)
             val contorno = contornos.maxByOrNull { Imgproc.contourArea(it) } ?: return null
             val puntos = contorno.toArray()

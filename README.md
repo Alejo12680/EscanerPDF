@@ -38,7 +38,7 @@ Inicio ──Escanear──► Cámara ──foto──► Recorte ──Otra p�
 ```
 
 1. **Inicio:** lista de PDFs creados. Cada uno tiene **Abrir**, **Compartir**, **Descargas** (copiar a la carpeta pública) y **Borrar**. Arriba, **Cerrar** cierra la app por completo.
-2. **Cámara:** vista previa en 4:3 y botón disparador. Muestra qué número de página se va a tomar.
+2. **Cámara:** vista previa en 4:3 y botón disparador. Muestra qué número de página se va a tomar. Desde la segunda página aparece **Listo (n)** a la derecha del disparador; la fila inferior se divide en tres espacios iguales (`Modifier.weight(1f)` a cada lado), así el botón nunca se monta sobre el disparador aunque la pantalla sea angosta.
 3. **Recorte:** la app propone las 4 esquinas de la hoja y el usuario las arrastra si hace falta (con lupa). Todas las páginas salen en **blanco y negro**.
 4. **Revisión:** miniaturas de las páginas (tocar una la abre en pantalla completa con zoom), borrar páginas, agregar más y nombre del documento.
 5. **Crear PDF:** se arma el PDF, se guarda en la carpeta privada y se vuelve a Inicio con el PDF nuevo resaltado.
@@ -216,14 +216,14 @@ La vista previa mide ~1600 px y la original ~4000 px. Si la esquina se guardara 
 **Método 2, `buscarPorRegion`** (se agregó después de probar con un OPPO A60: papel reciclado sobre una tela rosada y una hoja que se salía de la foto). El método 1 falla cuando un borde casi no se ve o cuando la hoja toca el marco de la foto, porque el contorno queda abierto.
 1. `calcularBordes`: `Canny(20, 60)` (más sensible) sobre el gris **y** sobre el "croma", que mide qué tan lejos del gris neutro está cada color (canales a y b del espacio Lab). Así aparece el borde entre un papel beige y una tela rosada aunque tengan el mismo brillo.
 2. `soloBordesLargos`: con `connectedComponentsWithStats` se descartan los bordes cortos, como las letras, y quedan las líneas largas (≥15% del lado menor): bordes de la hoja, de la mesa, etc.
-3. Esas líneas, engrosadas, funcionan como **paredes**. `connectedComponents` encuentra las zonas que quedan encerradas, y se elige la que más ocupa el **centro** de la foto (la hoja casi siempre está ahí).
+3. Esas líneas, engrosadas, funcionan como **paredes**. `connectedComponents` encuentra las zonas que quedan encerradas, y se elige la que más ocupa el **centro** de la foto (la hoja casi siempre está ahí). Después, una **apertura** de 15 px (`MORPH_OPEN`, `LADO_APERTURA`) corta las uniones delgadas por donde la zona se "escapa" hacia el fondo, por ejemplo hacia una curva clara de la tela.
 4. `findContours` de esa zona → `convexHull` → `approxPolyDP`, subiendo la tolerancia de a poco hasta que queden 4 puntos (`aproximarConCasco`).
 5. `ajustarLados`: la aproximación traza cuerdas que quedan unos píxeles por dentro del borde real. Por eso cada punto del contorno se asigna al lado más cercano, se ajusta una **recta** a cada lado (`fitLine` con `DIST_HUBER`, que ignora puntos raros) y las esquinas son los **cruces** de rectas vecinas.
 6. `esValido`: el área debe estar entre el 15% y el 98%, la figura debe ser convexa, los ángulos razonables (`cosenoMaximo` ≤ 0,6) y debe tener **soporte**: al menos el 60% del perímetro tiene que caer sobre bordes reales (los tramos pegados al marco de la foto no cuentan). Así no se acepta un cuadrilátero inventado.
 
 Si ninguno sirve, se usa `esquinasPorDefecto()` (rectángulo con 5% de margen). Al final, `ordenarEsquinas` ordena por ángulo alrededor del centro (sentido horario) y rota la lista para que empiece en el punto con menor `x + y` (arriba a la izquierda). Así funciona aunque la hoja esté girada (lo prueba `LogicaPuraTest`).
 
-Con 6 fotos reales, el método 1 encontraba la hoja en 1. Con el método 2 también se encuentran la firma y la lista del OPPO. Las 3 hojas sobre la tabla de apoyo, que se salen de la foto por arriba y por los lados, siguen con el rectángulo por defecto, igual que antes.
+Con 8 fotos reales, el método 1 encontraba la hoja en 1. Con el método 2 también se encuentran la firma y la lista de las fotos de prueba y las dos firmas tomadas con el OPPO. Las 3 hojas sobre la tabla de apoyo, que se salen de la foto por arriba y por los lados, siguen con el rectángulo por defecto, igual que antes.
 
 `Mat` vive en **memoria nativa** (C++), fuera del recolector de basura de Java; por eso cada `Mat` se libera con `release()` en un `finally`.
 
@@ -242,13 +242,25 @@ Con 6 fotos reales, el método 1 encontraba la hoja en 1. Con el método 2 tambi
    - En cada bloque mide la **desviación estándar del brillo del papel**, sin contar lo que está cerca de tinta (`CONTRASTE_TINTA` = 60). Se calcula con sumas: `resize` con `INTER_AREA` promedia, y con el promedio de x y el de x² sale la varianza.
    - `ruidoPorBloque` divide ese valor por la **ganancia** (cuánto se aclaró el bloque al normalizar) y luego la vuelve a aplicar. Así una zona en sombra, que al aclararse multiplicó su grano, exige más contraste. Los bloques sin papel visible, como los párrafos densos, usan la mediana de los demás.
    - **umbral** = el mayor entre 20 (`CONTRASTE_MINIMO`) y 6 × ruido (`VECES_RUIDO`).
+   - `ruidoPorBloque` también devuelve el **ruido de la página**: la mediana del ruido de todos los bloques con papel visible (se usa en el paso 9).
 6. Un píxel es **texto** si es más oscuro que su corte **y** el contraste de la zona supera su umbral.
 7. Un píxel es **zona oscura** si está por debajo del 70% del brillo del papel (`UMBRAL_OSCUROS`). Rellena barras, logos y grises medios.
-8. Negro = texto **o** zona oscura. Al final, `medianBlur 3x3` quita puntos sueltos.
+8. Negro = texto **o** zona oscura.
+9. **`conservarConNucleo`:** cada mancha negra (un grupo de píxeles conectados) se conserva solo si tiene un **núcleo oscuro**, es decir, al menos un píxel más oscuro que el papel en `max(20, 24 × ruido de la página)` niveles (`VECES_RUIDO_NUCLEO`). Si no lo tiene, se borra **completa**.
+   - `findContours` (`RETR_EXTERNAL`) busca los núcleos, y desde un punto de cada uno se lanza un `floodFill` con `FLOODFILL_MASK_ONLY`: el relleno pinta en una máscara toda la mancha que está conectada a ese núcleo. Lo pintado es lo que se conserva.
+   - Como se decide por mancha completa, las letras no se adelgazan: la parte tenue de un trazo se conserva porque está pegada a su parte oscura.
+   - Los núcleos que caen en el **1% junto al filo** de la página no cuentan (`DIVISOR_MARGEN_NUCLEO`; se borran dibujando un `rectangle` negro grueso sobre el borde). Cuando el recorte alcanza a tomar unos píxeles de la mesa, esa franja oscura no "salva" el grano del papel que tiene pegado. Lo que entra más en la hoja, como un texto cortado por el borde o una barra, conserva su núcleo.
+10. Al final, `medianBlur 3x3` quita puntos sueltos.
 
 **¿Por qué un corte local y no un umbral fijo?** Cada letra se corta a la misma fracción entre *su* tinta y *su* papel. Una letra negra (tinta ~20% del brillo del papel) y un título gris claro (tinta ~70%) quedan los dos con su grosor real. Con un umbral único había que elegir: o el título gris se borraba, o el texto negro salía grueso.
 
 **¿Por qué un umbral que depende del ruido?** En papel blanco con buena luz el ruido es bajo y el umbral queda en 20, como antes, así que el título gris claro se conserva. En papel reciclado (fibras y manchas) o en una sombra, las manchas tienen contraste de 20 a 30 y se volvían puntos negros por toda la hoja. Ahí el ruido medido es alto y el umbral sube a 40-60, mientras la tinta (contraste de 130 o más) pasa sin problema.
+
+**¿Por qué además el núcleo oscuro?** En las fotos reales del OPPO las motas que quedaban son poros y fibras del papel, casi invisibles en la foto: le quitan al papel solo 30-50 niveles de brillo. Lo más tenue del título de Bancolombia ("PROTOC") le quita lo mismo, así que ninguna oscuridad fija separa los dos casos. Lo que sí los separa es el grano del papel donde están:
+- Papel blanco liso: ruido de la página ~1,3, así que se exigen 31 niveles. El título gris se conserva.
+- Papel kraft: ruido ~4-5, así que se exigen 100-125 niveles. Las motas desaparecen y la tinta (150 niveles o más) pasa.
+
+Se usa el ruido de **toda la página** y no el de cada zona porque, cerca de la escritura, el ruido medido por bloque sube y se borraban palabras enteras.
 
 Historia de los ajustes (probados siempre con las mismas fotos reales):
 
@@ -260,11 +272,18 @@ Historia de los ajustes (probados siempre con las mismas fotos reales):
 | Corte al 50% | Demasiado fino: se cortaban letras como la "y". |
 | Contraste mínimo fijo 30-40 | Se volvía a borrar parte del título. |
 | Fondo con `dilate` y desenfoque grande (σ=12) | Una sombra con borde marcado, como la del celular, quedaba como franja gris llena de puntos. Se reemplazó por el cierre morfológico. |
-| **Umbral según el ruido, 6 veces (actual)** | Papel reciclado y sombras limpios. En papel blanco, el mismo grosor que antes (negro del texto 10,53% contra 10,60%) y el título se conserva. |
+| **Umbral según el ruido, 6 veces (se mantiene)** | Papel reciclado y sombras limpios. En papel blanco, el mismo grosor que antes (negro del texto 10,53% contra 10,60%) y el título se conserva. |
 | Umbral 8 veces el ruido | Se borraba parte del título gris. |
 | Exigir bordes nítidos | Borraba "PROTOC", lo más tenue del título, y el ruido de las sombras también tiene bordes nítidos. Descartado. |
 | Borrar manchas pequeñas por tamaño | Borraba los puntos de las íes y los puntos finales. Descartado. |
 | Suavizar más antes del corte | Engrosaba el texto ~12%. Descartado. |
+| Apagar el realce de bordes de la cámara (`EDGE_MODE_OFF` con Camera2) | El OPPO lo aceptó, pero las manchas casi no cambiaron (2.038 → 2.167): son textura real del papel. Descartado. |
+| Exigir oscuridad mínima píxel por píxel | Adelgazaba las letras de las hojas ya aprobadas. Descartado. |
+| Borrar manchas pequeñas, claras y de borde suave | Las manchas del OPPO bajaban un 60%, pero seguían viéndose y costaba 0,6–1,3 s por página. Reemplazado por el núcleo oscuro. |
+| Núcleo oscuro fijo (60% del brillo del papel) | Limpiaba el kraft, pero borraba **todo** el título gris de Bancolombia y algunos puntos de las íes. Descartado. |
+| Núcleo oscuro según el ruido de cada zona | Cerca de la escritura el ruido medido sube y se borraban palabras enteras de la lista. Descartado. |
+| Margen sin núcleos del 2% del lado | Borraba partes reales junto al borde de las hojas de Bancolombia. Se dejó en 1%. |
+| **Núcleo oscuro según el ruido de la página, sin núcleos en el 1% del borde (actual)** | Firmas en kraft del OPPO: de 2.038 y 2.167 manchas a 50 y 51 (prácticamente solo la firma y el texto). Hoja blanca del OPPO con sombra abajo: de 1.338 a 23. Hojas de Bancolombia: iguales a la versión anterior, título incluido; solo se van motitas y algunas líneas sueltas del borde (~0,1% de la página). 0,2–0,7 s por página en el OPPO. |
 
 **`ProcesadorPagina.kt`**
 - Todo se hace con `Mat` (memoria nativa) en vez de Bitmap, para no agotar la memoria de Java con 12 MP.
@@ -529,12 +548,13 @@ El corte local compara cada píxel con la tinta y el papel de su alrededor. Con 
 
 - **Grises decorativos** (curvas, sombreados) pueden salir rellenos con algunos puntitos blancos, o con manchas si quedan detrás del texto.
 - **Texto muy claro** (lápiz suave, impresión gris muy tenue) puede salir con trazos cortados. Bajar `CONTRASTE_MINIMO` lo recupera a cambio de más ruido; subir `FRACCION_BORDE` engruesa el texto.
-- **Papel reciclado con sombra muy fuerte:** en la parte más oscura pueden quedar algunos puntos. Subir `VECES_RUIDO` limpia más, pero desde 8 empieza a borrar texto gris claro.
+- **Lápiz muy suave sobre papel con mucho grano** (kraft): ahí se exige un núcleo más oscuro, y un trazo muy claro puede borrarse completo. Bajar `VECES_RUIDO_NUCLEO` lo recupera a cambio de más motas.
+- **Motas realmente oscuras** (una fibra negra, una gota de tinta) se conservan, porque son tan oscuras como la tinta.
 - **Fotos o dibujos** dentro de la hoja se ven como alto contraste, no como fotografía.
 
 ### Velocidad en el Moto g22
 
-Procesar una página de 12 MP en el Moto g22 (gama baja) tardaba 16,4 s con el umbral gaussiano y la interpolación cúbica. Con el umbral por promedio y la interpolación lineal bajó a 0,9 s; el corte local tiene un costo parecido, y el umbral según el ruido agrega poco porque se calcula a media resolución y por bloques (ver sección 5.4).
+Procesar una página de 12 MP en el Moto g22 (gama baja) tardaba 16,4 s con el umbral gaussiano y la interpolación cúbica. Con el umbral por promedio y la interpolación lineal bajó a 0,9 s; el corte local tiene un costo parecido, y el umbral según el ruido agrega poco porque se calcula a media resolución y por bloques. `conservarConNucleo` hace un `floodFill` por mancha; en el OPPO A60 el blanco y negro completo tarda 0,2–0,7 s por página (ver sección 5.4).
 
 ### Otras
 
@@ -559,7 +579,7 @@ Procesar una página de 12 MP en el Moto g22 (gama baja) tardaba 16,4 s con el u
 - [x] **Probar en Motorola** (Moto g22, Android 12): foto vertical, 12 MP, B/N y zoom.
 - [ ] **APK firmado para repartir:** el APK *debug* sirve para pruebas. Para distribuir: *Build → Generate Signed App Bundle / APK → APK*, crear un keystore y **guardarlo bien** (sin él no se pueden publicar actualizaciones que se instalen encima).
 - [x] **B/N mejorado:** normalización del fondo + corte local entre tinta y papel + umbral para zonas oscuras.
-- [x] **Papel reciclado, sombras y poca luz** (OPPO A60): umbral según el ruido y detección de bordes por regiones.
+- [x] **Papel reciclado, sombras y poca luz** (OPPO A60): umbral según el ruido, núcleo oscuro y detección de bordes por regiones.
 - [ ] Girar una página 90° desde Revisión.
 - [ ] Reordenar páginas.
 - [ ] Botón de flash o linterna para aulas con poca luz.

@@ -10,11 +10,13 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.fabio.escanerpdf.datos.Carpetas
+import com.fabio.escanerpdf.datos.Filtro
 import com.fabio.escanerpdf.datos.PaginaEscaneada
 import com.fabio.escanerpdf.datos.Punto
 import com.fabio.escanerpdf.datos.RepositorioDocumentos
 import com.fabio.escanerpdf.procesamiento.CargadorImagen
 import com.fabio.escanerpdf.procesamiento.DetectorBordes
+import com.fabio.escanerpdf.procesamiento.Filtros
 import com.fabio.escanerpdf.procesamiento.GeneradorPdf
 import com.fabio.escanerpdf.procesamiento.ProcesadorPagina
 import kotlinx.coroutines.CancellationException
@@ -36,10 +38,14 @@ class EscanerViewModel(aplicacion: Application) : AndroidViewModel(aplicacion) {
     var nombreDocumento by mutableStateOf(nombrePorDefecto())
 
     private var fotoActual: File? = null
+    private var vistaPreviaOriginal: Bitmap? = null
 
     var vistaPrevia by mutableStateOf<Bitmap?>(null)
         private set
     var esquinas by mutableStateOf(DetectorBordes.esquinasPorDefecto())
+        private set
+
+    var filtro by mutableStateOf(Filtro.BLANCO_NEGRO)
         private set
 
     var ocupado by mutableStateOf(false)
@@ -59,6 +65,7 @@ class EscanerViewModel(aplicacion: Application) : AndroidViewModel(aplicacion) {
     fun descartarDocumento() {
         paginas.clear()
         fotoActual = null
+        vistaPreviaOriginal = null
         vistaPrevia = null
         Carpetas.vaciar(Carpetas.sesion(contexto))
         Carpetas.vaciar(Carpetas.capturas(contexto))
@@ -66,20 +73,34 @@ class EscanerViewModel(aplicacion: Application) : AndroidViewModel(aplicacion) {
 
     fun cargarFoto(foto: File) {
         fotoActual = foto
+        vistaPreviaOriginal = null
         vistaPrevia = null
         ejecutar("No se pudo abrir la foto") {
-            val (imagen, detectadas) = withContext(Dispatchers.Default) {
+            val (original, detectadas) = withContext(Dispatchers.Default) {
                 val imagen = CargadorImagen.cargarReducida(foto, LADO_VISTA_PREVIA)
                 imagen to DetectorBordes.detectar(imagen)
             }
             if (fotoActual != foto) return@ejecutar
+            vistaPreviaOriginal = original
             esquinas = detectadas
-            vistaPrevia = imagen
+            mostrarConFiltro(original, filtro)
         }
     }
 
     fun moverEsquina(indice: Int, punto: Punto) {
         esquinas = esquinas.toMutableList().also { it[indice] = punto }
+    }
+
+    fun elegirFiltro(nuevo: Filtro) {
+        if (nuevo == filtro) return
+        filtro = nuevo
+        val original = vistaPreviaOriginal ?: return
+        ejecutar("No se pudo aplicar el filtro") { mostrarConFiltro(original, nuevo) }
+    }
+
+    private suspend fun mostrarConFiltro(original: Bitmap, filtroAplicado: Filtro) {
+        val resultado = withContext(Dispatchers.Default) { Filtros.previsualizar(original, filtroAplicado) }
+        if (filtro == filtroAplicado && vistaPreviaOriginal === original) vistaPrevia = resultado
     }
 
     fun descartarFoto() {
@@ -90,10 +111,11 @@ class EscanerViewModel(aplicacion: Application) : AndroidViewModel(aplicacion) {
     fun aceptarPagina(alTerminar: () -> Unit) {
         val foto = fotoActual ?: return
         val esquinasElegidas = esquinas
+        val filtroElegido = filtro
         ejecutar("No se pudo procesar la página") {
             val destino = File(Carpetas.sesion(contexto), "pagina_${System.currentTimeMillis()}.jpg")
             val pagina = withContext(Dispatchers.Default) {
-                ProcesadorPagina.procesar(foto, esquinasElegidas, destino)
+                ProcesadorPagina.procesar(foto, esquinasElegidas, filtroElegido, destino)
             }
             paginas.add(pagina)
             foto.delete()

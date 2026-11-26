@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -30,6 +31,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.fabio.escanerpdf.R
+import com.fabio.escanerpdf.datos.Filtro
 import com.fabio.escanerpdf.viewmodel.EscanerViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -82,6 +84,20 @@ fun PantallaRecorte(
                     !ocupado -> FotoNoDisponible(alRepetir)
                 }
                 if (ocupado) CircularProgressIndicator()
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+            ) {
+                Filtro.entries.forEach { opcion ->
+                    FilterChip(
+                        selected = opcion == escaner.filtro,
+                        onClick = { escaner.elegirFiltro(opcion) },
+                        label = { Text(opcion.etiqueta) },
+                        enabled = !ocupado,
+                    )
+                }
             }
 
             Row(

@@ -39,7 +39,7 @@ Inicio ──Escanear──► Cámara ──foto──► Recorte ──Otra p�
 
 1. **Inicio:** lista de PDFs creados. Cada uno tiene **Abrir**, **Compartir**, **Descargas** (copiar a la carpeta pública) y **Borrar**. Arriba, **Cerrar** cierra la app por completo.
 2. **Cámara:** vista previa en 4:3 y botón disparador. Muestra qué número de página se va a tomar. Desde la segunda página aparece **Listo (n)** a la derecha del disparador; la fila inferior se divide en tres espacios iguales (`Modifier.weight(1f)` a cada lado), así el botón nunca se monta sobre el disparador aunque la pantalla sea angosta.
-3. **Recorte:** la app propone las 4 esquinas de la hoja y el usuario las arrastra si hace falta (con lupa). Todas las páginas salen en **blanco y negro**.
+3. **Recorte:** la app propone las 4 esquinas de la hoja y el usuario las arrastra si hace falta (con lupa). Debajo de la foto se elige el filtro: **Color**, **Gris** o **B/N** (el que viene marcado). El filtro elegido se mantiene para las páginas siguientes.
 4. **Revisión:** miniaturas de las páginas (tocar una la abre en pantalla completa con zoom), borrar páginas, agregar más y nombre del documento.
 5. **Crear PDF:** se arma el PDF, se guarda en la carpeta privada y se vuelve a Inicio con el PDF nuevo resaltado.
 
@@ -54,7 +54,7 @@ Inicio ──Escanear──► Cámara ──foto──► Recorte ──Otra p�
 | **CameraX con ~12 MP** | Suficiente nitidez para texto sin archivos gigantes. Se pide 4000x3000; si el celular no la tiene, usa la más cercana por encima (p. ej. 4032x3024) y si no hay, por debajo. |
 | **OpenCV detecta en pequeño, endereza en grande** | Detectar bordes en 600 px es rápido y basta (el usuario puede corregir). El enderezado se hace sobre la foto original completa para no perder nitidez. |
 | **OpenCV 4.12.0** | Desde la 4.12.0 sus librerías nativas están alineadas a páginas de 16 KB. Con la 4.10.0, un celular con Android 15 y páginas de 16 KB no podría cargar OpenCV, y Android 16 la correría en "modo compatibilidad". |
-| **PdfBox-Android con JPEG calidad 95 incrustado tal cual** | El JPEG se mete en el PDF sin descomprimir ni recomprimir (filtro `DCTDecode`): no se pierde calidad y el PDF pesa casi lo mismo que las fotos. Ideal para WhatsApp. |
+| **PdfBox-Android con JPEG incrustado tal cual** (calidad 95 en B/N, 90 en Color y Gris) | El JPEG se mete en el PDF sin descomprimir ni recomprimir (filtro `DCTDecode`): no se pierde calidad y el PDF pesa casi lo mismo que las fotos. Ideal para WhatsApp. |
 | **El PDF se guarda primero en la carpeta privada** | No hace falta ningún permiso. Solo cuando el usuario toca "Descargas" se copia a `Download/EscanerPDF`. |
 | **FileProvider para Abrir y Compartir** | Android prohíbe pasar rutas `file://` a otras apps. El FileProvider entrega una URI `content://` con permiso temporal de lectura. |
 | **MVVM** | Las pantallas (Compose) solo dibujan; el estado vive en los ViewModel; el trabajo pesado está en `procesamiento/` y los archivos en `datos/`. |
@@ -64,7 +64,7 @@ Inicio ──Escanear──► Cámara ──foto──► Recorte ──Otra p�
 | **`compileSdk 37`** | `androidx.core` 1.19 y `material3` 1.5 exigen compilar contra Android 37. Se usa 37.0 (no 37.1) porque es lo máximo que soporta AGP 9.1.1. |
 | **`targetSdk 36`** | Ver [sección 9](#targetsdk-36). Coincide con Android 16, el más nuevo de los celulares objetivo. |
 | **Orientación vertical fija, también en la foto** | La app y la foto siempre son verticales, igual que la pantalla. La rotación automática de CameraX está **desactivada**: con el celular acostado sobre la hoja (mirando hacia abajo), el sensor de gravedad no sabe dónde es "arriba" y la foto salía de lado. |
-| **Solo blanco y negro** | Es lo que usan los estudiantes para apuntes y fotocopias: texto nítido y archivos livianos (JPEG de 1 canal). Quitar Color y Gris también simplifica la pantalla de recorte. |
+| **B/N por defecto, con Color y Gris opcionales** | B/N es lo que más usan los estudiantes para apuntes y fotocopias: texto nítido y archivos livianos (~0,3 MB por página). Color sirve para documentos con sellos, firmas en azul o dibujos, y Gris para fotos o sombreados; los dos guardan la hoja tal como se ve, pero pesan más (~1 MB por página). Se quitaron en una versión anterior y volvieron a pedido de los usuarios. |
 | **`largeHeap`** | Margen extra de memoria para fotos de 12 MP en celulares básicos. |
 
 ---
@@ -88,6 +88,7 @@ app/src/main/
     │   ├── CargadorImagen.kt          Lee fotos reducidas y derechas (EXIF)
     │   ├── DetectorBordes.kt          Encuentra las 4 esquinas de la hoja
     │   ├── BlancoYNegro.kt            Convierte la página a blanco y negro
+    │   ├── Filtros.kt                 Vista previa de Color, Gris y B/N
     │   ├── ProcesadorPagina.kt        Endereza en resolución completa y guarda JPEG 95
     │   └── GeneradorPdf.kt            Arma el PDF con PdfBox
     ├── viewmodel/
@@ -98,11 +99,11 @@ app/src/main/
         ├── inicio/PantallaInicio.kt      Lista de PDFs
         ├── inicio/AccionesPdf.kt         Intents de Abrir y Compartir
         ├── camara/PantallaCamara.kt      Permiso, vista previa y captura
-        ├── recorte/PantallaRecorte.kt    Botones Repetir, Otra página y Listo
+        ├── recorte/PantallaRecorte.kt    Filtros, Repetir, Otra página y Listo
         ├── recorte/EditorEsquinas.kt     Foto con 4 esquinas arrastrables y lupa
         ├── revision/PantallaRevision.kt  Miniaturas, nombre y Crear PDF
         ├── revision/VisorPagina.kt       Página en pantalla completa con zoom
-        └── theme/                        Colores y tipografía (de la plantilla)
+        └── theme/                        Colores de la app (verde, naranja, azul) y tipografía
 
 app/src/test/java/com/fabio/escanerpdf/LogicaPuraTest.kt   Pruebas que corren en la PC
 ```
@@ -122,12 +123,12 @@ Seguir este recorrido con el código abierto es la mejor forma de entender la ap
 5. **Vista previa y detección** (`EscanerViewModel.cargarFoto`, en un hilo de fondo):
    - `CargadorImagen.cargarReducida(foto, 1600)` → Bitmap pequeño (lado mayor entre 1600 y 3200 px) ya girado según el EXIF.
    - `DetectorBordes.detectar(bitmap)` → 4 esquinas **normalizadas** (0..1).
-   - La pantalla de recorte muestra la foto original (en color), que es más fácil para ubicar los bordes.
+   - `Filtros.previsualizar(bitmap, filtro)` muestra esa misma foto reducida con el filtro elegido (en Color, la foto tal cual).
 6. **Ajuste manual.** `EditorEsquinas` dibuja la foto y las esquinas. Cada arrastre llama a `escaner.moverEsquina(indice, punto)`.
-7. **Listo u Otra página** → `escaner.aceptarPagina()` → `ProcesadorPagina.procesar(foto, esquinas, destino)`:
-   - `Imgcodecs.imread` lee la foto **original completa** (12 MP) directamente **en gris** y sin aplicar EXIF, y `girar()` aplica la **misma** rotación EXIF que usó la vista previa. Así las esquinas normalizadas coinciden exactamente.
+7. **Listo u Otra página** → `escaner.aceptarPagina()` → `ProcesadorPagina.procesar(foto, esquinas, filtro, destino)`:
+   - `Imgcodecs.imread` lee la foto **original completa** (12 MP) **en color** (filtro Color) o directamente **en gris** (Gris y B/N), sin aplicar EXIF, y `girar()` aplica la **misma** rotación EXIF que usó la vista previa. Así las esquinas normalizadas coinciden exactamente.
    - Las esquinas se multiplican por el tamaño real → `warpPerspective` "aplana" la hoja.
-   - `BlancoYNegro.aplicar()` y se guarda `files/sesion/pagina_<hora>.jpg` con calidad 95.
+   - Con B/N se aplica `BlancoYNegro.aplicar()`; con Color y Gris la página enderezada se guarda tal cual. Se guarda `files/sesion/pagina_<hora>.jpg` (calidad 95 en B/N, 90 en Color y Gris).
    - Se crea una miniatura de 400 px para Revisión y se borra la foto original de `cache/capturas`.
 8. **Revisión.** `PantallaRevision` muestra `escaner.paginas`. Se pueden borrar páginas, cambiar el nombre o tocar una página para revisarla con zoom (`VisorPagina`).
 9. **Crear PDF** → `escaner.crearPdf()`:
@@ -155,6 +156,7 @@ La vista previa mide ~1600 px y la original ~4000 px. Si la esquina se guardara 
 | `compileSdk { version = release(37) }` | Versión de Android contra la que se compila (APIs disponibles). |
 | `minSdk = 24` | Android mínimo en el que se instala. |
 | `targetSdk = 36` | Versión cuyos comportamientos acepta la app (ver sección 9). |
+| `versionCode = 2`, `versionName = "1.1"` | `versionCode` es un número entero que Android compara entre APKs: no deja instalar uno con un número **menor** que el instalado, y Play Store exige subirlo en cada publicación. Subirlo en cada entrega también permite saber qué versión tiene cada celular. `versionName` es el texto que ve el usuario en *Ajustes → Apps*. La 1.1 trae los filtros Color y Gris, el B/N con núcleo oscuro y el diseño nuevo. |
 | `ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }` | Va **dentro de `defaultConfig`**. Solo empaqueta las `.so` de procesadores ARM. |
 | `packaging { jniLibs { useLegacyPackaging = true } }` | Comprime las `.so` dentro del APK. |
 | `dependencies` | Compose, Navigation, Lifecycle/ViewModel, CameraX, ExifInterface, OpenCV y PdfBox. |
@@ -176,7 +178,8 @@ La vista previa mide ~1600 px y la original ~4000 px. Si la esquina se guardara 
 
 **`Modelos.kt`**
 - `Punto(x, y)`: coordenadas normalizadas 0..1.
-- `PaginaEscaneada`: archivo JPEG + `ancho` y `alto` (el PDF los necesita para declarar la imagen) + `miniatura`.
+- `Filtro`: `enum class` con `COLOR`, `GRIS` y `BLANCO_NEGRO`; cada uno trae su `etiqueta` para el botón ("Color", "Gris", "B/N"). Un `enum` de Kotlin es igual que en Java, y `Filtro.entries` da la lista de todos.
+- `PaginaEscaneada`: archivo JPEG + `ancho` y `alto` (el PDF los necesita para declarar la imagen) + `enEscalaDeGrises` (si el JPEG tiene 1 canal) + `miniatura`.
 - `DocumentoPdf`: archivo + nombre, fecha y tamaño **leídos una vez** al listar (si se leyeran del disco en cada redibujo de Compose, la lista sería lenta).
 
 **`Carpetas.kt`** — rutas privadas (no necesitan permisos ni las ven otras apps):
@@ -285,18 +288,28 @@ Historia de los ajustes (probados siempre con las mismas fotos reales):
 | Margen sin núcleos del 2% del lado | Borraba partes reales junto al borde de las hojas de Bancolombia. Se dejó en 1%. |
 | **Núcleo oscuro según el ruido de la página, sin núcleos en el 1% del borde (actual)** | Firmas en kraft del OPPO: de 2.038 y 2.167 manchas a 50 y 51 (prácticamente solo la firma y el texto). Hoja blanca del OPPO con sombra abajo: de 1.338 a 23. Hojas de Bancolombia: iguales a la versión anterior, título incluido; solo se van motitas y algunas líneas sueltas del borde (~0,1% de la página). 0,2–0,7 s por página en el OPPO. |
 
+**`Filtros.kt`** — `previsualizar(bitmap, filtro)` arma la vista previa de la pantalla de recorte:
+- **Color:** devuelve el mismo Bitmap, sin copiarlo.
+- **Gris:** `Utils.bitmapToMat` → `cvtColor(COLOR_RGBA2GRAY)` → de vuelta a Bitmap con `matToBitmap`.
+- **B/N:** además aplica `BlancoYNegro.aplicar()`, el mismo de la página final, sobre la foto reducida (~1600 px). Como la foto todavía no está recortada, el fondo también sale en blanco y negro.
+
 **`ProcesadorPagina.kt`**
 - Todo se hace con `Mat` (memoria nativa) en vez de Bitmap, para no agotar la memoria de Java con 12 MP.
-- `imread(..., IMREAD_GRAYSCALE or IMREAD_IGNORE_ORIENTATION)` + `girar()`: se lee directamente en gris (3 veces menos datos que en color) y se gira "a mano" con la misma rotación EXIF de la vista previa (`Core.rotate`).
+- `imread(..., IMREAD_COLOR o IMREAD_GRAYSCALE, or IMREAD_IGNORE_ORIENTATION)` + `girar()`: en Gris y B/N se lee directamente en gris (3 veces menos datos que en color); en Color, con sus 3 canales. Luego se gira "a mano" con la misma rotación EXIF de la vista previa (`Core.rotate`).
 - `enderezar()`:
   - Esquinas × tamaño real → `Point`.
   - Ancho de la página = el mayor entre lado superior e inferior; alto = el mayor entre izquierdo y derecho.
-  - `getPerspectiveTransform` (matriz 3x3) + `warpPerspective` con `INTER_LINEAR` y `BORDER_REPLICATE`. La interpolación cúbica es 3,6 veces más lenta y, después de pasar a blanco y negro, la diferencia no se ve.
-- `BlancoYNegro.aplicar()` y `imwrite` con `IMWRITE_JPEG_QUALITY = 95`. Una imagen de 1 canal se guarda como JPEG en gris, que pesa menos.
+  - `getPerspectiveTransform` (matriz 3x3) + `warpPerspective` con `BORDER_REPLICATE` y la interpolación según el filtro:
+    - **B/N:** `INTER_LINEAR`. La cúbica es más lenta y, después de pasar a blanco y negro, la diferencia no se ve.
+    - **Color y Gris:** `INTER_CUBIC`. Usa 16 píxeles vecinos en vez de 4 y deja los bordes de las letras más definidos: con fotos reales, el detalle medido (varianza del Laplaciano) sube entre 35% y 80%. Aquí sí se nota, porque la página se guarda tal cual.
+- Con B/N, `BlancoYNegro.aplicar()`; con Color y Gris, la página enderezada. Después, `imwrite` con `IMWRITE_JPEG_QUALITY`:
+  - **B/N: 95** (`CALIDAD_BLANCO_NEGRO`). Una página en blanco y negro pesa ~0,3 MB aun con calidad alta.
+  - **Color y Gris: 90** (`CALIDAD_FOTO`). Con 95 una página pesaba ~1,6 MB; con 90 pesa ~1 MB y la diferencia casi no se ve. Un documento de 10 páginas a color baja de ~16 MB a ~10 MB, más fácil de mandar por WhatsApp.
+- Una imagen de 1 canal se guarda como JPEG en gris, que pesa menos. La página conserva la resolución completa de la foto (por ejemplo 2700x3600 px de una hoja que llena el cuadro).
 
 **`GeneradorPdf.kt`**
 - Cada página mide el **ancho de un A4** (595,28 puntos; 1 punto = 1/72 de pulgada) y el alto proporcional a la foto: una hoja carta, un recibo o una tarjeta conservan su forma.
-- **No se usa `JPEGFactory`**: en PdfBox-Android tiene un `// TODO` y marca todo JPEG como RGB. Las páginas son JPEG de 1 canal y deben declararse `DeviceGray`. Por eso se crea `PDImageXObject` directamente con `COSName.DCT_DECODE` y `PDDeviceGray`.
+- **No se usa `JPEGFactory`**: en PdfBox-Android tiene un `// TODO` y marca todo JPEG como RGB. Las páginas de Gris y B/N son JPEG de 1 canal y deben declararse `DeviceGray`. Por eso se crea `PDImageXObject` directamente con `COSName.DCT_DECODE` y el espacio de color según `enEscalaDeGrises`: `PDDeviceGray` o `PDDeviceRGB`.
 - `MemoryUsageSetting.setupMixed(16 MB)` con `cacheDir`: hasta 16 MB en memoria; si el PDF crece más, PdfBox usa archivos temporales.
 - Si algo falla se borra el PDF a medio escribir.
 
@@ -308,14 +321,16 @@ Historia de los ajustes (probados siempre con las mismas fotos reales):
 |---|---|
 | `paginas` | `mutableStateListOf`: Compose se entera cuando se agrega o quita una página. |
 | `nombreDocumento` | Lo edita el campo de texto de Revisión. |
-| `vistaPrevia`, `esquinas` | Estado de la pantalla de recorte (foto reducida y las 4 esquinas). |
+| `vistaPrevia`, `esquinas` | Estado de la pantalla de recorte (foto reducida con el filtro y las 4 esquinas). |
+| `filtro` | Filtro elegido; empieza en B/N y se conserva entre páginas. |
 | `ocupado` | `true` mientras corre una tarea; la UI desactiva botones y muestra un indicador de carga. |
 | `mensajeError` | Se muestra como Toast desde `NavegacionApp`. |
 | `pdfRecienCreado` | Para resaltar el PDF en Inicio. |
 
 - Las propiedades usan `by mutableStateOf(...)` con `private set`: las pantallas las leen, pero solo el ViewModel las cambia.
 - `ejecutar(mensaje, trabajo)`: lanza una corrutina en `viewModelScope`, marca `ocupado` y convierte errores en `mensajeError`. Deja pasar `CancellationException`, porque la cancelación no es un error, y atrapa `OutOfMemoryError` con un mensaje claro.
-- `cargarFoto` revisa al terminar si el usuario ya descartó esa foto; si es así, ignora el resultado.
+- `cargarFoto` revisa al terminar si el usuario ya descartó esa foto; si es así, ignora el resultado. Guarda la foto reducida sin filtro en `vistaPreviaOriginal`.
+- `elegirFiltro(nuevo)` vuelve a calcular la vista previa desde `vistaPreviaOriginal` (`mostrarConFiltro`). Si mientras tanto el usuario cambió otra vez de filtro o de foto, el resultado viejo se ignora.
 - `cargarParaVer(pagina)`: función `suspend` que carga la página a ~1500-3000 px para el visor con zoom (en un hilo de E/S).
 - `moverEsquina` crea una **lista nueva** (`toMutableList().also { ... }`) en vez de modificar la actual, para que Compose detecte el cambio.
 
@@ -344,7 +359,10 @@ Historia de los ajustes (probados siempre con las mismas fotos reales):
 - `LaunchedEffect(mensaje)`: muestra el Snackbar cuando hay mensaje nuevo.
 - Permiso de almacenamiento solo si `SDK_INT <= P` (Android 9); se recuerda qué documento se quería guardar (`documentoPorGuardar`) para continuar cuando el usuario responde.
 - Diálogo de confirmación antes de borrar.
-- `BotonAccion`: ícono + texto, con `semantics { contentDescription }` para TalkBack.
+- **Tarjeta de cada PDF** (`TarjetaDocumento`): una `Column` con `Modifier.shadow(10.dp)` (sombra debajo, para que se vea flotando) y `background(Brush.verticalGradient(...))` (degradado azul de arriba hacia abajo), con esquinas redondeadas de 16 dp. El orden de los modificadores importa: primero la sombra, después el fondo y al final el relleno interno. El texto es blanco con una sombra suave (`Shadow`) para leerse bien sobre el azul claro.
+  - Con el **tema oscuro** (`isSystemInDarkTheme()`) el degradado es más profundo (`AzulNocheClaro` → `AzulNocheOscuro`): el azul claro sobre fondo negro encandilaba.
+  - El PDF recién creado se reconoce por el texto "Recién creado". Antes llevaba un borde verde, pero sobre fondo negro parecía un brillo raro y se quitó.
+- `BotonAccion`: botón con degradado verde (`VerdeClaro` → `VerdeOscuro`), ícono y texto blancos y una sombra pequeña; tiene `semantics { contentDescription }` para TalkBack.
 
 **`inicio/AccionesPdf.kt`**
 - `abrirPdf`: `ACTION_VIEW` + `FLAG_GRANT_READ_URI_PERMISSION`. Si no hay visor de PDF, atrapa `ActivityNotFoundException` y avisa.
@@ -367,7 +385,7 @@ Historia de los ajustes (probados siempre con las mismas fotos reales):
 **`recorte/PantallaRecorte.kt`**
 - Tres estados: imagen cargada (editor), cargando (indicador de carga) y "La foto ya no está disponible" (falló la carga o Android cerró la app en segundo plano).
 - `BackHandler` ignora "atrás" mientras se procesa, para no perder la página.
-- Muestra la foto original en color: es más fácil ubicar los bordes de la hoja que en blanco y negro.
+- Fila de `FilterChip` (Color, Gris, B/N) entre la foto y los botones; se desactivan mientras se procesa.
 
 **`recorte/EditorEsquinas.kt`**
 - **Truco del `aspectRatio`:** la caja tiene la misma proporción que la foto, así la imagen la llena exactamente y las coordenadas de la caja coinciden con las de la foto.
@@ -377,7 +395,7 @@ Historia de los ajustes (probados siempre con las mismas fotos reales):
   2. Se guarda el `desfase` entre el dedo y la esquina.
   3. En cada movimiento: `esquina = posición del dedo + desfase`, limitada a 0..1. Usar la posición absoluta (en vez de sumar desplazamientos) evita errores acumulados.
 - **Lupa:** `Modifier.magnifier` (Android 9+) con zoom 2,5x, arriba del dedo (o abajo si el dedo está muy arriba). Con `Offset.Unspecified` se oculta.
-- `Canvas` dibuja el cuadrilátero (relleno translúcido + borde) y los 4 círculos; el que se arrastra se agranda.
+- `Canvas` dibuja el cuadrilátero (relleno translúcido + borde de 2 dp) en **naranja** y los 4 círculos (8 dp de radio; 11 dp el que se arrastra). Los círculos son solo el dibujo: el área para tocarlos sigue siendo de 48 dp, así que achicarlos no cambia la precisión.
 
 **`revision/PantallaRevision.kt`**
 - `LazyVerticalGrid` de 2 columnas con `TarjetaPagina` (miniatura + botón borrar). La tarjeta es un `Card(onClick = ...)`: al tocarla abre `VisorPagina`.
@@ -391,6 +409,20 @@ Historia de los ajustes (probados siempre con las mismas fotos reales):
 - **Zoom:** `detectTransformGestures` entrega el centro del pellizco, el desplazamiento y el factor de zoom. La imagen se dibuja con `graphicsLayer` (`scaleX/scaleY` + `translationX/Y`, origen arriba a la izquierda). La fórmula `desplazamiento = (desp + centro / escalaAnterior) - (centro / escalaNueva + paneo / escalaAnterior)` mantiene fijo el punto bajo los dedos.
 - **Doble toque** (`detectTapGestures`): acerca 3x en el punto tocado o vuelve a 1x.
 - `limitar()` impide arrastrar la imagen fuera de la pantalla. Zoom máximo: 6x.
+
+**`theme/Color.kt` y `theme/Theme.kt`** — los colores de la app:
+
+| Color | Valor | Dónde se usa |
+|---|---|---|
+| `Verde` | `#159C82` | Todos los botones: `primary`, `primaryContainer` (botón Escanear), `secondaryContainer` ("Listo (n)" y el filtro elegido) y `outline` (borde de los botones delineados). El texto sobre verde es blanco (`onPrimary`). |
+| `VerdeClaro` → `VerdeOscuro` | `#1AB592` → `#0C735E` | Degradado de los botones de las tarjetas de PDF. |
+| `Naranja` | `#E67E22` | Marco y puntos de la pantalla de recorte. |
+| `AzulClaro` → `AzulOscuro` | `#4BCFE8` → `#0088C0` | Degradado de las tarjetas de PDF en Inicio. |
+| `AzulNocheClaro` → `AzulNocheOscuro` | `#1C8DB5` → `#0A4A6E` | Las mismas tarjetas con el tema oscuro. |
+
+- **Por qué el verde no es `#1DCCA5`:** ese era el verde de referencia, pero el texto blanco sobre él tiene un contraste de solo 2,05 a 1 y cansaba la vista. Con `#159C82` sube a 3,4 a 1, y en el degradado de las tarjetas el texto queda sobre la parte más oscura (≈4,5 a 1). Para comparar: el mínimo recomendado para íconos es 3 a 1 y para texto pequeño 4,5 a 1 (normas WCAG).
+- Se quitó el **color dinámico** de la plantilla (Android 12+ toma los colores del fondo de pantalla del celular). Con él, cada celular mostraba la app con colores distintos; ahora siempre se ve con los colores elegidos.
+- El tema oscuro usa los mismos verdes; solo cambian los fondos.
 
 ### 5.7 `MainActivity.kt`
 
@@ -580,6 +612,7 @@ Procesar una página de 12 MP en el Moto g22 (gama baja) tardaba 16,4 s con el u
 - [ ] **APK firmado para repartir:** el APK *debug* sirve para pruebas. Para distribuir: *Build → Generate Signed App Bundle / APK → APK*, crear un keystore y **guardarlo bien** (sin él no se pueden publicar actualizaciones que se instalen encima).
 - [x] **B/N mejorado:** normalización del fondo + corte local entre tinta y papel + umbral para zonas oscuras.
 - [x] **Papel reciclado, sombras y poca luz** (OPPO A60): umbral según el ruido, núcleo oscuro y detección de bordes por regiones.
+- [x] **Filtros Color y Gris de vuelta**, en resolución completa e interpolación cúbica.
 - [ ] Girar una página 90° desde Revisión.
 - [ ] Reordenar páginas.
 - [ ] Botón de flash o linterna para aulas con poca luz.

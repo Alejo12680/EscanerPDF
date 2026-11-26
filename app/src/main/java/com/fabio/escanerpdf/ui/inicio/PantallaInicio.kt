@@ -7,7 +7,9 @@ import android.text.format.Formatter
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.DrawableRes
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -21,9 +23,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
@@ -43,6 +44,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
@@ -54,6 +60,12 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.fabio.escanerpdf.R
 import com.fabio.escanerpdf.datos.DocumentoPdf
+import com.fabio.escanerpdf.ui.theme.AzulClaro
+import com.fabio.escanerpdf.ui.theme.AzulNocheClaro
+import com.fabio.escanerpdf.ui.theme.AzulNocheOscuro
+import com.fabio.escanerpdf.ui.theme.AzulOscuro
+import com.fabio.escanerpdf.ui.theme.VerdeClaro
+import com.fabio.escanerpdf.ui.theme.VerdeOscuro
 import com.fabio.escanerpdf.viewmodel.InicioViewModel
 import java.io.File
 import java.text.DateFormat
@@ -134,8 +146,8 @@ fun PantallaInicio(
         } else {
             LazyColumn(
                 modifier = Modifier.padding(relleno),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 96.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 96.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 items(inicioViewModel.documentos, key = { it.archivo.path }) { documento ->
                     TarjetaDocumento(
@@ -213,46 +225,53 @@ private fun TarjetaDocumento(
     alBorrar: () -> Unit,
 ) {
     val contexto = LocalContext.current
-    val colores = if (resaltado) {
-        CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-    } else {
-        CardDefaults.cardColors()
-    }
     val fecha = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
         .format(Date(documento.fechaModificacion))
     val tamano = Formatter.formatShortFileSize(contexto, documento.tamanoBytes)
+    val forma = RoundedCornerShape(16.dp)
+    val sombraTexto = Shadow(Color.Black.copy(alpha = 0.3f), Offset(0f, 2f), 4f)
+    val degradado = if (isSystemInDarkTheme()) {
+        listOf(AzulNocheClaro, AzulNocheOscuro)
+    } else {
+        listOf(AzulClaro, AzulOscuro)
+    }
 
-    Card(colors = colores, modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    painterResource(R.drawable.ic_pdf),
-                    contentDescription = null,
-                    modifier = Modifier.size(40.dp),
-                    tint = MaterialTheme.colorScheme.primary,
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .shadow(elevation = 10.dp, shape = forma)
+            .background(Brush.verticalGradient(degradado), forma)
+            .padding(16.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                painterResource(R.drawable.ic_pdf),
+                contentDescription = null,
+                modifier = Modifier.size(40.dp),
+                tint = Color.White,
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    documento.nombre,
+                    style = MaterialTheme.typography.titleMedium.copy(shadow = sombraTexto),
+                    color = Color.White,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        documento.nombre,
-                        style = MaterialTheme.typography.titleMedium,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        if (resaltado) "Recién creado · $tamano" else "$fecha · $tamano",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                Text(
+                    if (resaltado) "Recién creado · $tamano" else "$fecha · $tamano",
+                    style = MaterialTheme.typography.bodySmall.copy(shadow = sombraTexto),
+                    color = Color.White.copy(alpha = 0.9f),
+                )
             }
-            Spacer(Modifier.height(8.dp))
-            Row(Modifier.fillMaxWidth()) {
-                BotonAccion(R.drawable.ic_abrir, "Abrir", "Abrir", alAbrir, Modifier.weight(1f))
-                BotonAccion(R.drawable.ic_compartir, "Compartir", "Compartir", alCompartir, Modifier.weight(1f))
-                BotonAccion(R.drawable.ic_descargar, "Descargas", "Guardar en Descargas", alGuardar, Modifier.weight(1f))
-                BotonAccion(R.drawable.ic_borrar, "Borrar", "Borrar", alBorrar, Modifier.weight(1f))
-            }
+        }
+        Spacer(Modifier.height(12.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            BotonAccion(R.drawable.ic_abrir, "Abrir", "Abrir", alAbrir, Modifier.weight(1f))
+            BotonAccion(R.drawable.ic_compartir, "Compartir", "Compartir", alCompartir, Modifier.weight(1f))
+            BotonAccion(R.drawable.ic_descargar, "Descargas", "Guardar en Descargas", alGuardar, Modifier.weight(1f))
+            BotonAccion(R.drawable.ic_borrar, "Borrar", "Borrar", alBorrar, Modifier.weight(1f))
         }
     }
 }
@@ -265,15 +284,23 @@ private fun BotonAccion(
     alTocar: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val forma = MaterialTheme.shapes.medium
     Column(
         modifier = modifier
-            .clip(MaterialTheme.shapes.small)
+            .shadow(elevation = 3.dp, shape = forma)
+            .clip(forma)
+            .background(Brush.verticalGradient(listOf(VerdeClaro, VerdeOscuro)))
             .clickable(onClick = alTocar)
             .semantics { contentDescription = descripcion }
             .padding(vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Icon(painterResource(icono), contentDescription = null)
-        Text(texto, style = MaterialTheme.typography.labelSmall)
+        Icon(painterResource(icono), contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary)
+        Text(
+            texto,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onPrimary,
+            maxLines = 1,
+        )
     }
 }

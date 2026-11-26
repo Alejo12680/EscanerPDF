@@ -1,5 +1,6 @@
 package com.fabio.escanerpdf.procesamiento
 
+import com.fabio.escanerpdf.datos.Filtro
 import com.fabio.escanerpdf.datos.PaginaEscaneada
 import com.fabio.escanerpdf.datos.Punto
 import org.opencv.core.Core
@@ -18,36 +19,45 @@ import kotlin.math.roundToInt
 
 object ProcesadorPagina {
 
-    const val CALIDAD_JPEG = 95
+    private const val CALIDAD_BLANCO_NEGRO = 95
+    private const val CALIDAD_FOTO = 90
     private const val LADO_MINIATURA = 400
 
     @Throws(IOException::class)
-    fun procesar(foto: File, esquinas: List<Punto>, destino: File): PaginaEscaneada {
+    fun procesar(foto: File, esquinas: List<Punto>, filtro: Filtro, destino: File): PaginaEscaneada {
         OpenCv.asegurarCargado()
         require(esquinas.size == 4) { "Se necesitan 4 esquinas" }
 
-        var original = Imgcodecs.imread(foto.path, Imgcodecs.IMREAD_GRAYSCALE or Imgcodecs.IMREAD_IGNORE_ORIENTATION)
+        val lectura = if (filtro == Filtro.COLOR) Imgcodecs.IMREAD_COLOR else Imgcodecs.IMREAD_GRAYSCALE
+        var original = Imgcodecs.imread(foto.path, lectura or Imgcodecs.IMREAD_IGNORE_ORIENTATION)
         if (original.empty()) throw IOException("No se pudo leer la foto")
         original = girar(original, CargadorImagen.rotacionExif(foto))
 
         val enderezada = Mat()
         var blancoYNegro: Mat? = null
         try {
-            enderezar(original, esquinas, enderezada)
+            val interpolacion = if (filtro == Filtro.BLANCO_NEGRO) Imgproc.INTER_LINEAR else Imgproc.INTER_CUBIC
+            enderezar(original, esquinas, enderezada, interpolacion)
             original.release()
 
-            blancoYNegro = BlancoYNegro.aplicar(enderezada)
+            val pagina = if (filtro == Filtro.BLANCO_NEGRO) {
+                BlancoYNegro.aplicar(enderezada).also { blancoYNegro = it }
+            } else {
+                enderezada
+            }
+            val calidad = if (filtro == Filtro.BLANCO_NEGRO) CALIDAD_BLANCO_NEGRO else CALIDAD_FOTO
             val guardado = Imgcodecs.imwrite(
                 destino.path,
-                blancoYNegro,
-                MatOfInt(Imgcodecs.IMWRITE_JPEG_QUALITY, CALIDAD_JPEG),
+                pagina,
+                MatOfInt(Imgcodecs.IMWRITE_JPEG_QUALITY, calidad),
             )
             if (!guardado) throw IOException("No se pudo guardar la página")
 
             return PaginaEscaneada(
                 archivo = destino,
-                ancho = blancoYNegro.cols(),
-                alto = blancoYNegro.rows(),
+                ancho = pagina.cols(),
+                alto = pagina.rows(),
+                enEscalaDeGrises = pagina.channels() == 1,
                 miniatura = CargadorImagen.cargarReducida(destino, LADO_MINIATURA),
             )
         } finally {
@@ -57,7 +67,7 @@ object ProcesadorPagina {
         }
     }
 
-    private fun enderezar(original: Mat, esquinas: List<Punto>, salida: Mat) {
+    private fun enderezar(original: Mat, esquinas: List<Punto>, salida: Mat, interpolacion: Int) {
         val ancho = original.cols().toDouble()
         val alto = original.rows().toDouble()
         val (supIzq, supDer, infDer, infIzq) = esquinas.map { Point(it.x * ancho, it.y * alto) }
@@ -76,7 +86,7 @@ object ProcesadorPagina {
         Imgproc.warpPerspective(
             original, salida, transformacion,
             Size(anchoPagina.toDouble(), altoPagina.toDouble()),
-            Imgproc.INTER_LINEAR, Core.BORDER_REPLICATE,
+            interpolacion, Core.BORDER_REPLICATE,
         )
         origen.release()
         destino.release()

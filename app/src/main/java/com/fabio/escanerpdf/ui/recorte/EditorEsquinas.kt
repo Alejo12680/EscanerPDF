@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.magnifier
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -30,6 +29,7 @@ import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.fabio.escanerpdf.datos.Punto
+import com.fabio.escanerpdf.ui.theme.Naranja
 
 @Composable
 fun EditorEsquinas(
@@ -47,7 +47,6 @@ fun EditorEsquinas(
 
     var indiceArrastrado by remember { mutableIntStateOf(-1) }
     var posicionDedo by remember { mutableStateOf(Offset.Unspecified) }
-    val colorBorde = MaterialTheme.colorScheme.primary
 
     Box(modifier.aspectRatio(imagen.width.toFloat() / imagen.height)) {
         Image(
@@ -109,13 +108,13 @@ fun EditorEsquinas(
                 for (punto in puntos.drop(1)) lineTo(punto.x, punto.y)
                 close()
             }
-            drawPath(contorno, color = colorBorde.copy(alpha = 0.18f))
-            drawPath(contorno, color = colorBorde, style = Stroke(width = 2.dp.toPx()))
+            drawPath(contorno, color = Naranja.copy(alpha = 0.18f))
+            drawPath(contorno, color = Naranja, style = Stroke(width = 2.dp.toPx()))
 
             puntos.forEachIndexed { indice, punto ->
-                val radio = if (indice == indiceArrastrado) 16.dp.toPx() else 12.dp.toPx()
+                val radio = if (indice == indiceArrastrado) 11.dp.toPx() else 8.dp.toPx()
                 drawCircle(Color.White, radius = radio, center = punto)
-                drawCircle(colorBorde, radius = radio, center = punto, style = Stroke(width = 3.dp.toPx()))
+                drawCircle(Naranja, radius = radio, center = punto, style = Stroke(width = 2.5.dp.toPx()))
             }
         }
     }
